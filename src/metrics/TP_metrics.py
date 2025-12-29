@@ -33,23 +33,35 @@ class TP_metrics(object):
     def __call__(self, dict_list: List) -> Dict:
         ade, fde, emd, log_prob = [], [], [], []
         for data_dict in dict_list:
+            # Average over samples if present (batch, time, samples, 2) -> (batch, time, 2)
+            pred = data_dict[('pred', 0)]
+            if pred.dim() == 4:
+                pred = pred.mean(dim=2)
+            
             ade.append(displacement_error(
-                data_dict[('pred', 0)][:, -12:], data_dict['gt'][:, -12:]))
+                pred[:, -12:], data_dict['gt'][:, -12:]))
             fde.append(final_displacement_error(
-                data_dict[('pred', 0)][:, -1], data_dict['gt'][:, -1]))
+                pred[:, -1], data_dict['gt'][:, -1]))
             emd.append(self.emd(data_dict))
             log_prob.append(self.log_prob(data_dict))
+
+            # ade.append(displacement_error(
+            #     data_dict[('pred', 0)][:, -12:], data_dict['gt'][:, -12:]))
+            # fde.append(final_displacement_error(
+            #     data_dict[('pred', 0)][:, -1], data_dict['gt'][:, -1]))
+            # emd.append(self.emd(data_dict))
+            # log_prob.append(self.log_prob(data_dict))
 
         ade = evaluate_helper(ade)
         fde = evaluate_helper(fde)
         emd = evaluate_helper(emd)
         log_prob = evaluate_helper(log_prob)
-        if self.dataset == 'eth':
-            ade /= 0.6
-            fde /= 0.6
-        if self.dataset == 'sdd':
-            ade = ade * 50
-            fde = fde * 50
+        # if self.dataset == 'eth':
+        #     ade /= 0.6
+        #     fde /= 0.6
+        # if self.dataset == 'sdd':
+        #     ade = ade * 50
+        #     fde = fde * 50
 
         return {"score": ade.cpu().numpy(),
                 "ade": ade.cpu().numpy(),
@@ -57,7 +69,7 @@ class TP_metrics(object):
                 "emd": emd.cpu().numpy(),
                 "log_prob": log_prob.cpu().numpy(),
                 "nsample": len(data_dict[('pred', 0)])}
-
+    
     def denormalize(self, dict_list: List) -> List:
         for data_dict in dict_list:
             if not ("pred", 0) in data_dict.keys():
@@ -72,8 +84,7 @@ class TP_metrics(object):
             data_dict[('pred', 0)] += data_dict['obs'][:, -1:, 0:2]
             for k in data_dict.keys():
                 if k[0] == "prob" and type(data_dict[k]) == torch.Tensor:
-                    offset = data_dict['obs'][:, None, -1:,
-                                              0:2] if k[1] == 0 else data_dict['gt'][:, None, k[1]-1:k[1], 0:2]
+                    offset = data_dict['obs'][:, None, -1:,0:2] if k[1] == 0 else data_dict['gt'][:, None, k[1]-1:k[1], 0:2]
                     data_dict[k][..., :2] += offset
 
         elif 'velocity' in self.state.keys():
@@ -83,10 +94,8 @@ class TP_metrics(object):
                 data_dict['gt'], dim=1) * data_dict['dt'][:, None, None] + data_dict['obs'][:, -1:, 0:2]
             for k in data_dict.keys():
                 if k[0] == "prob" and type(data_dict[k]) == torch.Tensor:
-                    offset = data_dict['obs'][:, None, -1:,
-                                              0:2] if k[1] == 0 else data_dict['gt'][:, None, k[1]-1:k[1], 0:2]
-                    data_dict[k][..., :2] = torch.cumsum(
-                        data_dict[k][..., :2], dim=2) * data_dict['dt'][:, None, None] + offset
+                    offset = data_dict['obs'][:, None, -1:,0:2] if k[1] == 0 else data_dict['gt'][:, None, k[1]-1:k[1], 0:2]
+                    data_dict[k][..., :2] = torch.cumsum(data_dict[k][..., :2], dim=2) * data_dict['dt'][:, None, None] + offset
 
         return data_dict
 
@@ -106,8 +115,7 @@ class TP_metrics(object):
             if k[0] == "prob_st" and type(data_dict[k]) == torch.Tensor:
                 data_dict[("prob", k[1])] = data_dict[k].clone()
                 data_dict[("prob", k[1])][..., :2] *= self.std
-                data_dict[("prob", k[1])][..., -
-                                          1] = torch.exp(data_dict[("prob", k[1])][..., -1])
+                data_dict[("prob", k[1])][..., -1] = torch.exp(data_dict[("prob", k[1])][..., -1])
 
         return data_dict
 
@@ -163,8 +171,9 @@ class TP_metrics(object):
 
 def evaluate_helper(error):
     error = torch.stack(error, dim=0)
-    min_error_sum = torch.min(error, dim=0)[0].sum(dim=0)
-    return min_error_sum
+    # Average across dicts and across agents (batch)
+    mean_error = error.mean(dim=0).mean(dim=0)
+    return mean_error
 
 
 def displacement_error(pred_traj, gt_traj):

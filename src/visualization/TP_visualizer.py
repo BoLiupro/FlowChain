@@ -14,6 +14,7 @@ from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.interpolate import griddata, RBFInterpolator, interp2d
 from scipy.stats import multivariate_normal
 
+W, H = 20, 10
 
 class Visualizer(ABC):
     def __init__(self, cfg: CfgNode):
@@ -102,11 +103,13 @@ class TP_Visualizer(Visualizer):
                     gt = traj[:, self.observe_length + update_step-1:]
 
                     zz_list = []
-                    for j in range(timesteps):
+                    # for j in range(timesteps):
+                    draw_steps = min(timesteps, 5)   # 最多画 8 步
+                    for j in range(draw_steps):
                         zz = prob[0, :, j].reshape(xx.shape)
                         zz /= np.max(zz)
-                        plot_density(xx, yy, zz, path=path_density_map / f"update{update_step}_{index[i][0]}_{index[i][1]}_{index[i][2].strip('PEDESTRIAN/')}_{j}.png",
-                                     traj=[obs[i], gt[i]])
+                        # plot_density(xx, yy, zz, path=path_density_map / f"update{update_step}_{index[i][0]}_{index[i][1]}_{index[i][2].strip('PEDESTRIAN/')}_{j}.png",
+                        #              traj=[obs[i], gt[i]])
                         zz_list.append(zz)
 
                     zz_sum = sum(zz_list)
@@ -118,7 +121,11 @@ class TP_Visualizer(Visualizer):
     def prob_to_grid(self, dict_list: List[Dict]) -> List:
         if ("prob", 0) in dict_list[0]:
             index = dict_list[0]['index']
-            min_pos, max_pos = self.get_minmax(index)
+            # min_pos, max_pos = self.get_minmax(index)
+            # 改为固定尺度映射
+
+            min_pos = np.array([0,0])
+            max_pos = np.array([W,H])
             xx, yy = self.get_grid(index)
 
             for data_dict in dict_list:
@@ -200,15 +207,35 @@ class TP_Visualizer(Visualizer):
                         data_dict["gt_prob"] = torch.exp(
                             gaussian.log_prob(value).sum(dim=-1))
 
+        # # 在 prob_to_grid(dict_list) 最后 return 前加入：
+
+        # for data_dict in dict_list:
+        #     data_dict["obs_array"] = data_dict["obs"][..., :2].cpu().numpy()
+        #     data_dict["gt_array"] = data_dict["gt"][..., :2].cpu().numpy()
+
+        #     if ('pred', 0) in data_dict:
+        #         data_dict["pred_array"] = data_dict[('pred', 0)][..., :2].cpu().numpy()
+        #     else:
+        #         data_dict["pred_array"] = None
+
         return dict_list
 
-    def get_grid(self, index):
-        min_pos, max_pos = self.get_minmax(index)
-        xs = np.linspace(min_pos[0], max_pos[0], num=self.num_grid)
-        ys = np.linspace(min_pos[1], max_pos[1], num=self.num_grid)
-        xx, yy = np.meshgrid(xs, ys)
+    # def get_grid(self, index):
+    #     min_pos, max_pos = self.get_minmax(index)
+    #     xs = np.linspace(min_pos[0], max_pos[0], num=self.num_grid)
+    #     ys = np.linspace(min_pos[1], max_pos[1], num=self.num_grid)
+    #     xx, yy = np.meshgrid(xs, ys)
 
+    #     return xx, yy
+
+    def get_grid(self, index):
+        # 不再用 min_pos / max_pos
+        W, H = 20, 10   # 你原来用的缩放
+        xs = np.linspace(0, W, num=self.num_grid)
+        ys = np.linspace(0, H, num=self.num_grid)
+        xx, yy = np.meshgrid(xs, ys)
         return xx, yy
+
 
     def get_minmax(self, index):
         idx = [s.name for s in self.env.scenes].index(index[0][0])
@@ -266,38 +293,243 @@ class TP_Visualizer(Visualizer):
             img_path (Path): Path
         """
 
+        # N_seqs, N_timesteps, N_trials, N_dim = pred.shape
+        # gt_vis = np.zeros([N_seqs, N_timesteps+1, N_dim])
+        # gt_vis[:, 0] = obs[:, -1]
+        # gt_vis[:, 1:] = gt
+
+        # pred_vis = np.zeros([N_seqs, N_timesteps+1, N_trials, N_dim])
+        # # (num_seqs, num_dim) -> (num_seqs, 1, num_dim)
+        # pred_vis[:, 0] = obs[:, -1][:, None]
+        # pred_vis[:, 1:] = pred
+
+
+
+        # f, ax = plt.subplots(1, 1)
+        # ax.set_aspect('equal', adjustable='box')
+        # # ax.set_xlim(min_pos[0], max_pos[0])
+        # # ax.set_ylim(min_pos[1], max_pos[1])
+        # ax.set_xlim(0, W)
+        # ax.set_ylim(0, H)
+
+        # for j in range(N_seqs):
+        #     sns.lineplot(x=obs[j, :, 0], y=obs[j, :, 1], color='black',
+        #                  legend='brief', label="obs", marker='o')
+        #     sns.lineplot(x=gt_vis[j, :, 0], y=gt_vis[j, :, 1],
+        #                  color='blue', legend='brief', label="GT", marker='o')
+        #     for i in range(pred.shape[2]):
+        #         if i == 0:
+        #             sns.lineplot(x=pred_vis[j, :, i, 0], y=pred_vis[j, :, i, 1],
+        #                          color='green', legend='brief', label="pred", marker='o')
+        #         else:
+        #             sns.lineplot(x=pred_vis[j, :, i, 0], y=pred_vis[j, :, i, 1], color='green', marker='o')
+
+
+        # 原 shape：pred: (N_seqs, T_pred, N_trials, 2)
         N_seqs, N_timesteps, N_trials, N_dim = pred.shape
-        gt_vis = np.zeros([N_seqs, N_timesteps+1, N_dim])
+
+        # ============= 重新构造 gt_vis/pred_vis（只保留前5步） =============
+        draw_T = min(12, N_timesteps)   # 最多画5步
+
+        # obs 全部步骤正常画
+        # 改 gt：只画前5步
+        gt_vis = np.zeros([N_seqs, draw_T + 1, N_dim])
         gt_vis[:, 0] = obs[:, -1]
-        gt_vis[:, 1:] = gt
+        gt_vis[:, 1:] = gt[:, :draw_T]
 
-        pred_vis = np.zeros([N_seqs, N_timesteps+1, N_trials, N_dim])
-        # (num_seqs, num_dim) -> (num_seqs, 1, num_dim)
+        # 改 pred：只画前5步
+        pred_vis = np.zeros([N_seqs, draw_T + 1, N_trials, N_dim])
         pred_vis[:, 0] = obs[:, -1][:, None]
-        pred_vis[:, 1:] = pred
+        pred_vis[:, 1:] = pred[:, :draw_T]
 
+        # ====== 计算平均轨迹（Expectation / Mean trajectory） ======
+        # pred shape: (N_seqs, T_pred, N_trials, 2)
+
+        mean_pred = pred.mean(axis=2)   # (N_seqs, T_pred, 2)
+
+        mean_pred_vis = np.zeros([N_seqs, draw_T + 1, N_dim])
+        mean_pred_vis[:, 0] = obs[:, -1]
+        mean_pred_vis[:, 1:] = mean_pred[:, :draw_T]
+
+
+        # ============= 绘图 =============
         f, ax = plt.subplots(1, 1)
-        ax.set_aspect('equal', adjustable='box')
-        ax.set_xlim(min_pos[0], max_pos[0])
-        ax.set_ylim(min_pos[1], max_pos[1])
+
+        # ============= 区域定义 =============
+        CROSSING_POLY = np.array([
+            [0.3 * W, 0.18 * H],
+            [0.5 * W, 0.17 * H],
+            [0.52 * W, 0.34 * H],
+            [0.35 * W, 0.35 * H],
+        ], dtype=np.float32)
+
+        # ============= 区域蒙版 =============
+        poly = plt.Polygon(
+            CROSSING_POLY,
+            color='gray',
+            alpha=0.25,
+            zorder=1   # 一定要比轨迹低
+        )
+        ax.add_patch(poly)
+
+        ax.set_aspect('equal')
+        # ax.set_xlim(0, W)
+        # ax.set_ylim(0, H)
+        ax.set_xlim(4, 12)
+        ax.set_ylim(0, 6)
 
         for j in range(N_seqs):
-            sns.lineplot(x=obs[j, :, 0], y=obs[j, :, 1], color='black',
-                         legend='brief', label="obs", marker='o')
-            sns.lineplot(x=gt_vis[j, :, 0], y=gt_vis[j, :, 1],
-                         color='blue', legend='brief', label="GT", marker='o')
-            for i in range(pred.shape[2]):
+
+            # ------ gt：只画前5步 ------
+            sns.lineplot(
+                x=gt_vis[j, :, 0],
+                y=gt_vis[j, :, 1],
+                color='blue', label="GT", marker='o'
+            )
+
+            # ------ pred：只画前5步 ------
+            # for i in range(N_trials):
+            #     if i == 0:
+            #         sns.lineplot(
+            #             x=pred_vis[j, :, i, 0],
+            #             y=pred_vis[j, :, i, 1],
+            #             color='green', marker='o', label='pred'
+            #         )
+            #         # continue
+            #     else:
+            #         sns.lineplot(
+            #             x=pred_vis[j, :, i, 0],
+            #             y=pred_vis[j, :, i, 1],
+            #             color='green', marker='o'
+            #         )
+            for i in range(N_trials):
                 if i == 0:
-                    sns.lineplot(x=pred_vis[j, :, i, 0], y=pred_vis[j, :, i, 1],
-                                 color='green', legend='brief', label="pred", marker='o')
+                    sns.lineplot(
+                        x=mean_pred_vis[j, :, 0],
+                        y=mean_pred_vis[j, :, 1],
+                        color='green', marker='o', label='pred'
+                    )
+                    # continue
                 else:
                     sns.lineplot(
-                        x=pred_vis[j, :, i, 0], y=pred_vis[j, :, i, 1], color='green', marker='o')
+                        x=mean_pred_vis[j, :, 0],
+                        y=mean_pred_vis[j, :, 1],
+                        color='green', marker='o'
+                    )
 
+                        # ------ obs：全步骤 ------
+            sns.lineplot(
+                x=obs[j, :, 0], 
+                y=obs[j, :, 1],
+                color='black', label="obs", marker='o'
+            )
         img_path = self.output_dir / \
             f"{index[0]}_{index[1]}_{index[2].strip('PEDESTRIAN/')}.png"
         plt.savefig(img_path)
         plt.close()
+
+        # 保存obs,gt_vis,pred_vis为csv文件
+        # np.savetxt(self.output_dir / f"{index[0]}_{index[1]}_{index[2].strip('PEDESTRIAN/')}_obs.csv",
+        #            obs[0], delimiter=',')
+        # np.savetxt(self.output_dir / f"{index[0]}_{index[1]}_{index[2].strip('PEDESTRIAN/')}_gt.csv",
+        #            gt_vis[0], delimiter=',')
+        # np.savetxt(self.output_dir / f"{index[0]}_{index[1]}_{index[2].strip('PEDESTRIAN/')}_pred.csv",
+        #            pred_vis[0].reshape(N_timesteps+1, N_trials*N_dim), delimiter=',')
+
+    def plot_all_in_one(self, obs_all, gt_all, pred_all):
+        """
+        obs_all: list of obs arrays, each (T_obs, 2)
+        gt_all:  list of gt arrays, each (T_pred, 2)
+        pred_all: list of pred arrays, each (T_pred, N_samples, 2) or (T_pred, 2)
+        """
+
+        # ====================================================
+        # 统一 pred_all 维度：确保 (T_pred, N_samples, 2)
+        # ====================================================
+        for i in range(len(pred_all)):
+            pred = pred_all[i]
+
+            # (T_pred,2) → (T_pred,1,2)
+            if pred.ndim == 2:
+                pred = pred[:, None, :]    # N_samples = 1
+
+            pred_all[i] = pred
+
+        # ====================================================
+        # 正式绘图部分
+        # ====================================================
+        f, ax = plt.subplots(1, 1, figsize=(6, 3))
+        ax.set_aspect('equal')
+        ax.set_xlim(0, W)
+        ax.set_ylim(0, H)
+
+        CROSSING_POLY = np.array([
+            [0.3 * W, 0.18 * H],
+            [0.5 * W, 0.17 * H],
+            [0.52 * W, 0.34 * H],
+            [0.35 * W, 0.35 * H],
+        ], dtype=np.float32)
+
+        # 区域蒙版
+        poly = plt.Polygon(
+            CROSSING_POLY,
+            color='gray',
+            alpha=0.25,
+            zorder=2
+        )
+        ax.add_patch(poly)
+
+        # ====================================================
+        # 逐个轨迹叠加
+        # ====================================================
+        is_first = True
+
+        for obs, gt, pred in zip(obs_all, gt_all, pred_all):
+
+            # obs
+            sns.lineplot(
+                x=obs[:, 0], y=obs[:, 1],
+                color='black', marker='o',
+                label="obs" if is_first else None
+            )
+
+            # gt 只画前5步
+            draw_T = min(5, len(gt))
+            gt_draw = np.zeros((draw_T + 1, 2))
+            gt_draw[0] = obs[-1]
+            gt_draw[1:] = gt[:draw_T]
+
+            sns.lineplot(
+                x=gt_draw[:, 0], y=gt_draw[:, 1],
+                color='blue', marker='o',
+                label="gt" if is_first else None
+            )
+
+            # pred：统一后是 (T_pred, N_samples, 2)
+            T_pred, N_samples, _ = pred.shape
+            draw_T = min(5, T_pred)
+
+            pred_draw = np.zeros((draw_T + 1, N_samples, 2))
+            pred_draw[0] = obs[-1]
+            pred_draw[1:] = pred[:draw_T]
+
+            for s in range(N_samples):
+                sns.lineplot(
+                    x=pred_draw[:, s, 0],
+                    y=pred_draw[:, s, 1],
+                    color='green',
+                    marker='o',
+                    alpha=0.6,
+                    label='pred' if (is_first and s == 0) else None
+                )
+
+            is_first = False
+
+        ax.set_title("All Trajectories")
+        out_path = self.output_dir / "all_in_one.png"
+        plt.savefig(out_path, dpi=150)
+        plt.close()
+
 
 
 def plot2d_trajectories_samples(
@@ -319,8 +551,10 @@ def plot2d_trajectories_samples(
 
     f, ax = plt.subplots(1, 1)
     ax.set_aspect('equal', adjustable='box')
-    ax.set_xlim(min_pos[0], max_pos[0])
-    ax.set_ylim(min_pos[1], max_pos[1])
+    # ax.set_xlim(min_pos[0], max_pos[0])
+    # ax.set_ylim(min_pos[1], max_pos[1])
+    plt.xlim(5,12)
+    plt.ylim(0,5)
 
     for j in range(N_seqs):
         gt_vis = np.zeros([N_timesteps+1, N_dim])

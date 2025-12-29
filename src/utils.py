@@ -13,6 +13,10 @@ from pathlib import Path
 def load_config(args: argparse.Namespace) -> CfgNode:
     from default_params import _C as cfg
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+    # 验证cuda是否可用
+    if not torch.cuda.is_available():
+        raise EnvironmentError("CUDA不可用，请检查你的环境配置。")
+    
 
     cfg_ = cfg.clone()
     if os.path.isfile(args.config_file):

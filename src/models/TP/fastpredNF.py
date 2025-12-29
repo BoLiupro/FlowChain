@@ -101,20 +101,17 @@ class fastpredNF_TP(nn.Module):
     def predict_inverse_prob(self, data_dict: Dict) -> Dict:
         dist_args = self.encoder(data_dict)
 
-        sample_num = 10000
+        sample_num = 500
 
-        base_pos = self.get_base_pos(
-            data_dict)[:, None].expand(-1, sample_num, -1).clone()
+        base_pos = self.get_base_pos(data_dict)[:, None].expand(-1, sample_num, -1).clone()
         dist_args = dist_args[:, None].expand(-1, sample_num, -1, -1)
-        sampled_seq, log_prob, seq_ldjs, base_log_prob = self.flow.sample_with_log_prob(
-            base_pos, cond=dist_args)
+        sampled_seq, log_prob, seq_ldjs, base_log_prob = self.flow.sample_with_log_prob(base_pos, cond=dist_args)
 
         # for update
         self.ldjs_tmp = seq_ldjs
         self.base_prob_normalizer_tmp = base_log_prob.exp().sum(dim=1)
 
-        data_dict[("prob_st", 0)] = torch.cat(
-            [sampled_seq, log_prob[..., None]], dim=-1)
+        data_dict[("prob_st", 0)] = torch.cat([sampled_seq, log_prob[..., None]], dim=-1)
 
         data_dict[("pred_st", 0)] = sampled_seq[:, -1]  # sample one trajectory
 
@@ -125,11 +122,9 @@ class fastpredNF_TP(nn.Module):
 
         sample_num = 100
 
-        base_pos = self.get_base_pos(
-            data_dict)[:, None].expand(-1, sample_num, -1).clone()
+        base_pos = self.get_base_pos(data_dict)[:, None].expand(-1, sample_num, -1).clone()
         dist_args = dist_args[:, None].expand(-1, sample_num, -1, -1)
-        sampled_seq, log_prob, seq_ldjs, base_log_prob = self.flow.sample_with_log_prob(
-            base_pos, cond=dist_args)
+        sampled_seq, log_prob, seq_ldjs, base_log_prob = self.flow.sample_with_log_prob(base_pos, cond=dist_args)
 
         data_dict[("pred_st", 0)] = sampled_seq[:, -1]
         if torch.sum(torch.isnan(data_dict[('pred_st', 0)])):
@@ -234,6 +229,7 @@ class fastpredNF_TP(nn.Module):
         if path is None:
             path = self.output_path / "ckpt.pt"
 
+        # path = '/root/workspace/FlowChain/output/config/TP/FlowChain/CIF_separate_cond_v_trajectron/red/ckpt.pt'
         ckpt = torch.load(path)
         self.load_state_dict(ckpt['state'])
 
