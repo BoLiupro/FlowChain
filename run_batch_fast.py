@@ -1,160 +1,113 @@
+import subprocess
+import re
+import numpy as np
 import sys
 import os
-import numpy as np
-import pandas as pd
-import torch
-import argparse
-from tqdm import tqdm
-from copy import deepcopy
 import time
+import shutil
+import multiprocessing
+import argparse
 
-# Add src to path so we can import modules from it
-sys.path.append(os.path.join(os.getcwd(), 'src'))
+def run_command(command):
+    process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    stdout, stderr = process.communicate()
+    return stdout, stderr, process.returncode
 
-# Import FlowChain modules
-from utils import load_config
-from data.unified_loader import unified_loader
-from models.build_model import Build_Model
-from metrics.build_metrics import Build_Metrics
-from visualization.build_visualizer import Build_Visualizer
+def parse_metrics(output):
+    ade_match = re.search(r"'ade':\s*([0-9.]+)", output)
+    fde_match = re.search(r"'fde':\s*([0-9.]+)", output)
+    
+    if ade_match and fde_match:
+        return float(ade_match.group(1)), float(fde_match.group(1))
+    return None, None
 
-# Import data processing module
-import red_light_jump_data_process_5 as data_process
+def process_frame(center_frame):
+    pid = os.getpid()
+    # Create unique temporary directories
+    base_temp_dir = os.path.abspath(f"temp_data_{pid}_{center_frame}")
+    raw_dir = os.path.join(base_temp_dir, "TP", "raw_data", "zara2")
+    processed_dir = os.path.join(base_temp_dir, "TP", "processed_data")
+    
+    os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(processed_dir, exist_ok=True)
+    
+    try:
+        # 1. Run data process
+        # Output to raw_dir
+        # Note: red_light_jump_data_process_5.py appends /train, /test, /val to the output dir
+        # So we pass raw_dir which is .../zara2
+        cmd_process = f"{sys.executable} red_light_jump_data_process_6.py --center_frame {center_frame} --output_dir {raw_dir}"
+        out_p, err_p, code_p = run_command(cmd_process)
+        
+        if "[警告] 车辆" in out_p and "程序终止" in out_p:
+            return center_frame, None, None, "Skipped (Vehicle in crossing)"
+            
+        if "No data generated." in out_p:
+            return center_frame, None, None, "No data generated"
+            
+        if code_p != 0:
+            return center_frame, None, None, f"Error in data process: {err_p}"
+            
+        # 2. Run process_data.py
+        # Input: base_temp_dir/TP/raw_data
+        # Output: processed_dir
+        raw_input_path = os.path.join(base_temp_dir, "TP", "raw_data")
+        cmd_data = f"{sys.executable} src/data/TP/process_data.py --raw_path {raw_input_path} --processed_path {processed_dir}"
+        out_d, err_d, code_d = run_command(cmd_data)
+        
+        if code_d != 0:
+             return center_frame, None, None, f"Error in process_data: {err_d}"
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Fast batch processing")
-    parser.add_argument("--config_file", type=str, default='config/TP/FlowChain/CIF_separate_cond_v_trajectron/eth.yml',
-                        metavar="FILE", help='path to config file')
-    parser.add_argument("--gpu", type=str, default='0')
-    parser.add_argument("--start", type=int, default=20)
-    parser.add_argument("--end", type=int, default=4300)
-    parser.add_argument("--visualize", action='store_true', default=False)
-    parser.add_argument("--mode", type=str, default="test")
-    # Add other args expected by load_config
-    parser.add_argument("opts", help="Modify config options using the command-line", default=None,
-                        nargs=argparse.REMAINDER)
-    return parser.parse_args()
+        # 3. Run validation
+        # DATA.PATH should point to base_temp_dir (which contains TP/processed_data)
+        # Note: unified_loader looks for {DATA.PATH}/{DATA.TASK}/processed_data
+        # So if DATA.PATH is base_temp_dir, it looks for base_temp_dir/TP/processed_data. Correct.
+        cmd_val = f"{sys.executable} src/main_4.py DATA.PATH {base_temp_dir}"
+        out_v, err_v, code_v = run_command(cmd_val)
+        
+        if code_v != 0:
+            return center_frame, None, None, f"Error in validation: {err_v}"
+        
+        # 4. Parse results
+        ade, fde = parse_metrics(out_v)
+        
+        if ade is not None and fde is not None:
+            return center_frame, ade, fde, "Success"
+        else:
+            return center_frame, None, None, "Could not parse metrics"
+
+    finally:
+        # Cleanup
+        if os.path.exists(base_temp_dir):
+            shutil.rmtree(base_temp_dir)
 
 def main():
-    args = parse_args()
-    cfg = load_config(args)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--start', type=int, default=81)
+    parser.add_argument('--end', type=int, default=4301)
+    parser.add_argument('--workers', type=int, default=1)
+    args = parser.parse_args()
     
-    # 1. Load Model Once
-    print("Loading model...")
-    model = Build_Model(cfg)
-    try:
-        model.load()
-    except FileNotFoundError:
-        print("Error: No model saved found!")
-        return
-    model.eval()
+    start_frame = args.start
+    end_frame = args.end
+    workers = args.workers
     
-    metrics_calc = Build_Metrics(cfg)
+    frames = range(start_frame, end_frame + 1, 10)
     
-    # 2. Load Data Source Once
-    print("Loading raw data...")
-    folder = "/root/workspace/FlowChain-ICCV2023/red_data/red_full"
-    df_raw = data_process.load_ultralytics(folder)
-    df_2_5hz = data_process.resample_to_2_5hz(df_raw)
-    
-    # Output path for the intermediate file
-    out_dir = "/root/workspace/FlowChain-ICCV2023/src/data/TP/raw_data/zara2/test"
-    out_file = f"{out_dir}/converted_tracks.txt"
-    os.makedirs(out_dir, exist_ok=True)
+    print(f"Starting batch processing from frame {start_frame} to {end_frame} with {workers} workers...")
     
     ade_list = []
     fde_list = []
     
-    print(f"Starting fast batch processing from {args.start} to {args.end}...")
-    
-    # 3. Loop
-    for center_frame in tqdm(range(args.start, args.end + 1)):
-        # --- Data Generation ---
-        # We can call the functions directly
-        df_final = data_process.build_observe_predict(df_2_5hz, center_frame)
-        
-        if df_final.empty:
-            # Vehicle warning or no data
-            continue
-            
-        df_final = data_process.smooth_tracks(df_final)
-        
-        if df_final.empty:
-            continue
-            
-        df_final = df_final.sort_values(["frame_id", "track_id"])
-        
-        # Write to file (Data Loader expects this)
-        df_final.to_csv(out_file, sep="\t", index=False, header=False)
-        
-        # --- Inference ---
-        # Re-initialize data loader for the new file
-        # unified_loader reads the file we just wrote
-        # We use split="test" or "train" depending on what main_4.py used. 
-        # main_4.py used split="test" in test() function.
-        # But wait, the file path we wrote to is .../eth/train/converted_tracks.txt
-        # unified_loader logic:
-        # if split == 'train': path = .../train_data.pkl (usually)
-        # But here we are using a raw text file?
-        # Let's check how unified_loader works.
-        # In main_4.py: data_loader = unified_loader(cfg, rand=False, split="test")
-        # If we look at TP_metrics.py, it loads "processed_data/{dataset}_train.pkl" for env.
-        # But the data loader loads the actual trajectories.
-        
-        # Assuming unified_loader reads from the location we wrote to if we configure it right.
-        # The original script wrote to: src/data/TP/raw_data/eth/train/converted_tracks.txt
-        # And main_4.py ran with default config.
-        # Let's assume unified_loader(..., split="test") reads that file or processes it.
-        # Actually, usually raw data needs preprocessing into pkl.
-        # Does main_4.py do preprocessing on the fly?
-        # If main_4.py worked in the slow batch script, it means it worked.
-        # The slow script ran `python src/main_4.py`.
-        # `src/main_4.py` calls `unified_loader(cfg, rand=False, split="test")`.
-        
-        # We need to be careful. If unified_loader caches data, we might be in trouble.
-        # But usually for "test" split, it might read directly or we might need to clear cache.
-        
-        try:
-            # We instantiate a new loader every time to ensure it reads the new file
-            # This is still much faster than reloading the model
-            data_loader = unified_loader(cfg, rand=False, split="test")
-            
-            # Run inference
-            with torch.no_grad():
-                for data_dict in data_loader:
-                    data_dict = {k: data_dict[k].cuda()
-                                 if isinstance(data_dict[k], torch.Tensor)
-                                 else data_dict[k]
-                                 for k in data_dict}
-                    
-                    # Predict
-                    result_dict = model.predict(deepcopy(data_dict), return_prob=True)
-                    
-                    # Metrics
-                    # We need to wrap result in list as metrics expects list
-                    dict_list = [deepcopy(result_dict)]
-                    dict_list = metrics_calc.denormalize(dict_list)
-                    
-                    # Calculate metrics
-                    res = metrics_calc(dict_list)
-                    
-                    ade = res['ade']
-                    fde = res['fde']
-                    
-                    # ade/fde might be numpy arrays or scalars
-                    if np.ndim(ade) == 0:
-                        ade_list.append(float(ade))
-                        fde_list.append(float(fde))
-                    else:
-                        # If batch size > 1 (unlikely here), mean it
-                        ade_list.append(float(np.mean(ade)))
-                        fde_list.append(float(np.mean(fde)))
-                        
-        except Exception as e:
-            print(f"Error processing frame {center_frame}: {e}")
-            import traceback
-            traceback.print_exc()
-            pass
+    with multiprocessing.Pool(processes=workers) as pool:
+        for center_frame, ade, fde, msg in pool.imap_unordered(process_frame, frames):
+            if ade is not None:
+                print(f"Frame {center_frame}: ADE={ade:.4f}, FDE={fde:.4f}")
+                ade_list.append(ade)
+                fde_list.append(fde)
+            else:
+                print(f"Frame {center_frame}: {msg}")
+                pass
 
     if ade_list:
         avg_ade = np.mean(ade_list)

@@ -35,22 +35,22 @@ class TP_metrics(object):
         for data_dict in dict_list:
             # Average over samples if present (batch, time, samples, 2) -> (batch, time, 2)
             pred = data_dict[('pred', 0)]
-            if pred.dim() == 4:
-                pred = pred.mean(dim=2)
+            # if pred.dim() == 4:
+            #     pred = pred.mean(dim=2)
             
-            ade.append(displacement_error(
-                pred[:, -12:], data_dict['gt'][:, -12:]))
-            fde.append(final_displacement_error(
-                pred[:, -1], data_dict['gt'][:, -1]))
-            emd.append(self.emd(data_dict))
-            log_prob.append(self.log_prob(data_dict))
-
             # ade.append(displacement_error(
-            #     data_dict[('pred', 0)][:, -12:], data_dict['gt'][:, -12:]))
+            #     pred[:, -12:], data_dict['gt'][:, -12:]))
             # fde.append(final_displacement_error(
-            #     data_dict[('pred', 0)][:, -1], data_dict['gt'][:, -1]))
+            #     pred[:, -1], data_dict['gt'][:, -1]))
             # emd.append(self.emd(data_dict))
             # log_prob.append(self.log_prob(data_dict))
+
+            ade.append(displacement_error(
+                data_dict[('pred', 0)][:, -12:], data_dict['gt'][:, -12:]))
+            fde.append(final_displacement_error(
+                data_dict[('pred', 0)][:, -1], data_dict['gt'][:, -1]))
+            emd.append(self.emd(data_dict))
+            log_prob.append(self.log_prob(data_dict))
 
         ade = evaluate_helper(ade)
         fde = evaluate_helper(fde)

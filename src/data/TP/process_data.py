@@ -95,8 +95,14 @@ def augment(scene):
 nl = 0
 l = 0
 
-raw_path = './src/data/TP/raw_data'
-data_folder_name = './src/data/TP/processed_data/'
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--raw_path', type=str, default='./src/data/TP/raw_data', help='Raw data path')
+parser.add_argument('--processed_path', type=str, default='./src/data/TP/processed_data/', help='Processed data path')
+args = parser.parse_args()
+
+raw_path = args.raw_path
+data_folder_name = args.processed_path
 
 maybe_makedirs(data_folder_name)
 

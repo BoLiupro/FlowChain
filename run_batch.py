@@ -29,8 +29,8 @@ def main():
     
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--start', type=int, default=20)
-    parser.add_argument('--end', type=int, default=4300)
+    parser.add_argument('--start', type=int, default=81)
+    parser.add_argument('--end', type=int, default=4301)
     args = parser.parse_args()
     
     start_frame = args.start
@@ -38,11 +38,11 @@ def main():
     
     print(f"Starting batch processing from frame {start_frame} to {end_frame}...")
     
-    for center_frame in range(start_frame, end_frame + 1):
+    for center_frame in range(start_frame, end_frame + 1, 10):
         # print(f"Processing frame {center_frame}...", end='\r')
         
         # 1. Run data process
-        cmd_process = f"{sys.executable} red_light_jump_data_process_5.py --center_frame {center_frame}"
+        cmd_process = f"{sys.executable} red_light_jump_data_process_6.py --center_frame {center_frame}"
         out_p, err_p, code_p = run_command(cmd_process)
         
         if "[警告] 车辆" in out_p and "程序终止" in out_p:

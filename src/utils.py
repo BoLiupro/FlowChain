@@ -31,6 +31,10 @@ def load_config(args: argparse.Namespace) -> CfgNode:
 
     if cfg_.LOAD_TUNED and args.mode != "tune":
         cfg_ = load_tuned(args, cfg_)
+    
+    if hasattr(args, 'opts') and args.opts:
+        cfg_.merge_from_list(args.opts)
+
     cfg_.freeze()
 
     print(f"output dirname: {cfg_.OUTPUT_DIR}")

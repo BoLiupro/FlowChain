@@ -129,6 +129,8 @@ def smooth_tracks(df, window=5, poly=2):
     对轨迹使用 Savitzky–Golay 滤波器做平滑处理
     window: 必须为奇数
     """
+    if df.empty:
+        return df
     df_list = []
     for tid, g in df.groupby("track_id"):
         g = g.sort_values("frame_id")
@@ -221,6 +223,7 @@ def build_observe_predict(df, center_frame):
             if vehicle_enters_crossing(df_tid, obs_frames, center_frame) and not is_stationary(df_tid):
                 print(f"[警告] 车辆 {tid} 在 crossing 区域内运动，程序终止")
                 sys.exit(0)
+                # return pd.DataFrame() # Return empty DF to signal skip
 
 
             # 车辆不进入输出数据
@@ -243,22 +246,32 @@ def build_observe_predict(df, center_frame):
 if __name__ == "__main__":
 
     folder = "/root/workspace/FlowChain-ICCV2023/red_data/red_full"
-    center_frame = 21 # 191, 231, 621,
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--center_frame', type=int, default=81, help='Center frame for processing')
+    parser.add_argument('--output_dir', type=str, default="/root/workspace/FlowChain-ICCV2023/src/data/TP/raw_data/zara2", help='Output directory')
+    args = parser.parse_args()
+    center_frame = args.center_frame
+    out_dir = args.output_dir
 
     df_raw = load_ultralytics(folder)
     df_2_5hz = resample_to_2_5hz(df_raw)
     df_final = build_observe_predict(df_2_5hz, center_frame)
     df_final = smooth_tracks(df_final)
-
-
-    # 若因车辆闯入 crossing 已提前退出，这里不会执行
+    
+    if df_final.empty:
+        print("No data generated.")
+        # Create empty file to overwrite previous data
+        os.makedirs(f"{out_dir}/train", exist_ok=True)
+        with open(f"{out_dir}/train/converted_tracks.txt", 'w') as f:
+            pass
+        sys.exit(0)
 
     df_final = df_final.sort_values(["frame_id", "track_id"])
-    out_dir = "/root/workspace/FlowChain-ICCV2023/src/data/TP/raw_data/zara2"
 
-    df_final.to_csv(f"{out_dir}/train/converted_tracks.txt", sep="\t", index=False, header=False)
+    # df_final.to_csv(f"{out_dir}/train/converted_tracks.txt", sep="\t", index=False, header=False)
     df_final.to_csv(f"{out_dir}/test/converted_tracks.txt", sep="\t", index=False, header=False)
-    df_final.to_csv(f"{out_dir}/val/converted_tracks.txt", sep="\t", index=False, header=False)
+    # df_final.to_csv(f"{out_dir}/val/converted_tracks.txt", sep="\t", index=False, header=False)
 
     print("已保存：converted_tracks.txt")
     print(df_final)
