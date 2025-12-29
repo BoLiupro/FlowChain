@@ -35,22 +35,22 @@ class TP_metrics(object):
         for data_dict in dict_list:
             # Average over samples if present (batch, time, samples, 2) -> (batch, time, 2)
             pred = data_dict[('pred', 0)]
-            # if pred.dim() == 4:
-            #     pred = pred.mean(dim=2)
+            if pred.dim() == 4:
+                pred = pred.mean(dim=2)
             
-            # ade.append(displacement_error(
-            #     pred[:, -12:], data_dict['gt'][:, -12:]))
-            # fde.append(final_displacement_error(
-            #     pred[:, -1], data_dict['gt'][:, -1]))
-            # emd.append(self.emd(data_dict))
-            # log_prob.append(self.log_prob(data_dict))
-
             ade.append(displacement_error(
-                data_dict[('pred', 0)][:, -12:], data_dict['gt'][:, -12:]))
+                pred[:, -12:], data_dict['gt'][:, -12:]))
             fde.append(final_displacement_error(
-                data_dict[('pred', 0)][:, -1], data_dict['gt'][:, -1]))
+                pred[:, -1], data_dict['gt'][:, -1]))
             emd.append(self.emd(data_dict))
             log_prob.append(self.log_prob(data_dict))
+
+            # ade.append(displacement_error(
+            #     data_dict[('pred', 0)][:, -12:], data_dict['gt'][:, -12:]))
+            # fde.append(final_displacement_error(
+            #     data_dict[('pred', 0)][:, -1], data_dict['gt'][:, -1]))
+            # emd.append(self.emd(data_dict))
+            # log_prob.append(self.log_prob(data_dict))
 
         ade = evaluate_helper(ade)
         fde = evaluate_helper(fde)
@@ -174,6 +174,13 @@ def evaluate_helper(error):
     # Average across dicts and across agents (batch)
     mean_error = error.mean(dim=0).mean(dim=0)
     return mean_error
+
+
+def evaluate_min_helper(error):
+    error = torch.stack(error, dim=0)
+    # Min across dicts (samples), then Average across agents (batch)
+    min_error = error.min(dim=0)[0].mean(dim=0)
+    return min_error
 
 
 def displacement_error(pred_traj, gt_traj):

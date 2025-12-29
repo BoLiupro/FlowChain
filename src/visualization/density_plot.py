@@ -26,12 +26,12 @@ from shapely.geometry import Point, Polygon
 W, H = 20, 10
 
 # sta
-# CROSSING_POLY_XY = np.array([
-#     [0.3 * W, 0.18 * H],
-#     [0.5 * W, 0.17 * H],
-#     [0.52 * W, 0.34 * H],
-#     [0.35 * W, 0.35 * H],
-# ], dtype=np.float32)
+CROSSING_POLY_XY = np.array([
+    [0.3 * W, 0.18 * H],
+    [0.5 * W, 0.17 * H],
+    [0.52 * W, 0.34 * H],
+    [0.35 * W, 0.35 * H],
+], dtype=np.float32)
 
 # small
 # CROSSING_POLY_XY = np.array([
@@ -74,12 +74,12 @@ W, H = 20, 10
 # ], dtype=np.float32)
 
 # only right
-CROSSING_POLY_XY = np.array([
-    [0.4 * W, 0.175 * H],
-    [0.5 * W, 0.17 * H],
-    [0.52 * W, 0.34 * H],
-    [0.435 * W, 0.345 * H],
-], dtype=np.float32)
+# CROSSING_POLY_XY = np.array([
+#     [0.4 * W, 0.175 * H],
+#     [0.5 * W, 0.17 * H],
+#     [0.52 * W, 0.34 * H],
+#     [0.435 * W, 0.345 * H],
+# ], dtype=np.float32)
 
 def plot_density(x, y, p, path: Path, traj=None):
     plt.figure(figsize=(6, 3))

@@ -193,7 +193,7 @@ def vehicle_enters_crossing(df_tid, obs_frames, center_frame):
 # ============================================================
 # 4. 构造 obs+pred
 # ============================================================
-def build_observe_predict(df, center_frame):
+def build_observe_predict(df, center_frame, target_tid=None):
 
     STEP = 10
     OBS_FRAMES = 8
@@ -204,6 +204,13 @@ def build_observe_predict(df, center_frame):
     target_frames = obs_frames + pred_frames
 
     active_tids = df[df.frame_id == center_frame]["track_id"].unique()
+    
+    if target_tid is not None:
+        if target_tid in active_tids:
+            active_tids = [target_tid]
+        else:
+            return pd.DataFrame()
+
     all_rows = []
 
     for tid in active_tids:
@@ -250,13 +257,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--center_frame', type=int, default=81, help='Center frame for processing')
     parser.add_argument('--output_dir', type=str, default="/root/workspace/FlowChain-ICCV2023/src/data/TP/raw_data/zara2", help='Output directory')
+    parser.add_argument('--track_id', type=int, default=None, help='Specific track ID to process')
     args = parser.parse_args()
     center_frame = args.center_frame
     out_dir = args.output_dir
+    track_id = args.track_id
 
     df_raw = load_ultralytics(folder)
     df_2_5hz = resample_to_2_5hz(df_raw)
-    df_final = build_observe_predict(df_2_5hz, center_frame)
+    df_final = build_observe_predict(df_2_5hz, center_frame, target_tid=track_id)
     df_final = smooth_tracks(df_final)
     
     if df_final.empty:
@@ -269,9 +278,9 @@ if __name__ == "__main__":
 
     df_final = df_final.sort_values(["frame_id", "track_id"])
 
-    # df_final.to_csv(f"{out_dir}/train/converted_tracks.txt", sep="\t", index=False, header=False)
+    df_final.to_csv(f"{out_dir}/train/converted_tracks.txt", sep="\t", index=False, header=False)
     df_final.to_csv(f"{out_dir}/test/converted_tracks.txt", sep="\t", index=False, header=False)
-    # df_final.to_csv(f"{out_dir}/val/converted_tracks.txt", sep="\t", index=False, header=False)
+    df_final.to_csv(f"{out_dir}/val/converted_tracks.txt", sep="\t", index=False, header=False)
 
     print("已保存：converted_tracks.txt")
     print(df_final)

@@ -20,7 +20,7 @@ from visualization.build_visualizer import Build_Visualizer
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="pytorch training & testing code for task-agnostic time-series prediction")
-    parser.add_argument("--config_file", type=str, default='config/TP/FlowChain/CIF_separate_cond_v_trajectron/zara1.yml',
+    parser.add_argument("--config_file", type=str, default='config/TP/FlowChain/CIF_separate_cond_v_trajectron/zara2.yml',
                         metavar="FILE", help='path to config file')
     parser.add_argument("--gpu", type=str, default='0')
     parser.add_argument(
@@ -52,6 +52,9 @@ def compute_region_probability_from_samples_fast(sampled_seq, polygon_xy):
 
     # reshape -> (N*T, 2)
     pts = sampled_seq.reshape(-1, 2)
+
+    if isinstance(pts, torch.Tensor):
+        pts = pts.cpu().numpy()
 
     # bool mask, shape (N*T,)
     inside = poly_path.contains_points(pts)
@@ -174,12 +177,12 @@ def evaluate_model(cfg: CfgNode, model: torch.nn.Module, data_loader: torch.util
 
                 # -------- 4) 定义区域 & 计算每时刻的区域概率 --------
                 # sta
-                # CROSSING_POLY_XY = np.array([
-                #     [0.3 * W, 0.18 * H],
-                #     [0.5 * W, 0.17 * H],
-                #     [0.52 * W, 0.34 * H],
-                #     [0.35 * W, 0.35 * H],
-                # ], dtype=np.float32)
+                CROSSING_POLY_XY = np.array([
+                    [0.3 * W, 0.18 * H],
+                    [0.5 * W, 0.17 * H],
+                    [0.52 * W, 0.34 * H],
+                    [0.35 * W, 0.35 * H],
+                ], dtype=np.float32)
 
                 # small
                 # CROSSING_POLY_XY = np.array([
@@ -222,31 +225,31 @@ def evaluate_model(cfg: CfgNode, model: torch.nn.Module, data_loader: torch.util
                 # ], dtype=np.float32)
 
                 # only right
-                CROSSING_POLY_XY = np.array([
-                    [0.4 * W, 0.175 * H],
-                    [0.5 * W, 0.17 * H],
-                    [0.52 * W, 0.34 * H],
-                    [0.435 * W, 0.345 * H],
-                ], dtype=np.float32)
+                # CROSSING_POLY_XY = np.array([
+                #     [0.4 * W, 0.175 * H],
+                #     [0.5 * W, 0.17 * H],
+                #     [0.52 * W, 0.34 * H],
+                #     [0.435 * W, 0.345 * H],
+                # ], dtype=np.float32)
 
-                # region_prob_seq = compute_region_probability_from_samples_fast(
-                #     sampled_xy, CROSSING_POLY_XY
-                # )
+                region_prob_seq = compute_region_probability_from_samples_fast(
+                    sampled_xy, CROSSING_POLY_XY
+                )
 
-                # print("区域概率序列 (%):", region_prob_seq * 100)
+                print("区域概率序列 (%):", region_prob_seq * 100)
                 ender.record()
                 torch.cuda.synchronize()
                 curr_run_time = starter.elapsed_time(ender)
                 run_times[0].append(curr_run_time)
 
                 # -------- 5) 原来的 density map / metrics / 可视化 --------
-                # dict_list = visualizer.prob_to_grid(dict_list)
+                dict_list = visualizer.prob_to_grid(dict_list)
                 result_list.append(metrics(deepcopy(dict_list)))
 
-            #     if visualize:
-            #         visualizer(dict_list)
-            #     if i == 9:
-            #         break
+                if visualize:
+                    visualizer(dict_list)
+                if i == 9:
+                    break
 
             # visualizer.plot_all_in_one(all_obs, all_gt, all_pred)
             result_info.update(aggregate(result_list))

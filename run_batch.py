@@ -70,7 +70,7 @@ def main():
         out_v, err_v, code_v = run_command(cmd_val)
         
         # 2. Run validation
-        cmd_val = f"{sys.executable} src/main_4.py"
+        cmd_val = f"{sys.executable} src/main_5.py"
         out_v, err_v, code_v = run_command(cmd_val)
         
         if code_v != 0:
